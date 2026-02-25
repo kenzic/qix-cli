@@ -1,7 +1,16 @@
 {
-  "name": "qix",
+  "name": "qix-cli",
   "version": "0.1.0",
   "description": "CLI for managing bash scripts",
+  "author": "Chris Mckenzie",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kenzic/qix-cli.git"
+  },
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "bin": {
     "qix": "./dist/cli.js"
