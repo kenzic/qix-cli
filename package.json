@@ -1,0 +1,19 @@
+{
+  "name": "qix",
+  "version": "0.1.0",
+  "description": "CLI for managing bash scripts",
+  "type": "module",
+  "bin": {
+    "qix": "./src/cli.js"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "packageManager": "pnpm@10.12.1",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "commander": "^12.1.0"
+  }
+}
