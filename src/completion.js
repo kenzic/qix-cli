@@ -6,14 +6,14 @@ _qix_completion() {
   cur="\${COMP_WORDS[COMP_CWORD]}"
 
   if [[ \${COMP_CWORD} -eq 1 ]]; then
-    COMPREPLY=( $(compgen -W "add link list run completion help" -- "$cur") )
+    COMPREPLY=( $(compgen -W "add completion help info link list ls run" -- "$cur") )
     return 0
   fi
 
   cmd="\${COMP_WORDS[1]}"
 
   case "$cmd" in
-    run)
+    run|info)
       if [[ \${COMP_CWORD} -eq 2 ]]; then
         scripts="$(qix list 2>/dev/null)"
         COMPREPLY=( $(compgen -W "$scripts" -- "$cur") )

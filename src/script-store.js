@@ -6,11 +6,13 @@ import {
   copyFile,
   lstat,
   readdir,
+  readFile,
   rename,
   rm,
   stat,
   symlink,
 } from "node:fs/promises";
+import matter from "gray-matter";
 import { resolveScriptName, validateScriptName } from "./names.js";
 import { ensureScriptsDir, getScriptPath, getScriptsDir } from "./paths.js";
 
@@ -53,11 +55,15 @@ async function removeDestinationIfNeeded(destinationPath, force) {
 
   if (!force) {
     const scriptName = path.basename(destinationPath, ".sh");
-    throw new Error(`Script "${scriptName}" already exists. Use --force to overwrite.`);
+    throw new Error(
+      `Script "${scriptName}" already exists. Use --force to overwrite.`,
+    );
   }
 
   if (existing.isDirectory() && !existing.isSymbolicLink()) {
-    throw new Error(`Cannot overwrite directory at destination: ${destinationPath}`);
+    throw new Error(
+      `Cannot overwrite directory at destination: ${destinationPath}`,
+    );
   }
 
   await rm(destinationPath, { force: true });
@@ -67,7 +73,12 @@ async function setExecutableMode(filePath) {
   await chmod(filePath, 0o755);
 }
 
-export async function addScript({ sourcePath, name, move = false, force = false }) {
+export async function addScript({
+  sourcePath,
+  name,
+  move = false,
+  force = false,
+}) {
   await ensureScriptsDir();
 
   const resolvedSource = await assertReadableFile(sourcePath);
@@ -101,21 +112,56 @@ export async function linkScript({ sourcePath, name, force = false }) {
   return { name: scriptName, path: destinationPath };
 }
 
+function extractScriptBlock(content) {
+  const match = content.match(/# ---\n([\s\S]*?)\n# ---/);
+  if (!match) return null;
+  const yamlLike = match[1]
+    .split("\n")
+    .map((line) => line.replace(/^# ?/, ""))
+    .join("\n");
+  const withDelims = `---\n${yamlLike}\n---`;
+  return matter(withDelims).data;
+}
+
 export async function listScripts() {
   await ensureScriptsDir();
   const entries = await readdir(getScriptsDir(), { withFileTypes: true });
 
-  return entries
+  const scripts = entries
     .filter(
       (entry) =>
-        entry.name.endsWith(".sh") && (entry.isFile() || entry.isSymbolicLink())
+        entry.name.endsWith(".sh") &&
+        (entry.isFile() || entry.isSymbolicLink()),
     )
-    .map((entry) => entry.name.slice(0, -3))
-    .sort((a, b) => a.localeCompare(b));
+    .map((entry) => entry.name.slice(0, -3));
+
+  const withDescriptions = await Promise.all(
+    scripts.map(async (name) => {
+      let description;
+      try {
+        const content = await readFile(getScriptPath(name), "utf8");
+        const data = extractScriptBlock(content);
+        description =
+          data && typeof data.description === "string"
+            ? data.description.trim()
+            : undefined;
+      } catch {
+        // ignore read errors (e.g. broken symlink)
+      }
+      return { name, description };
+    }),
+  );
+
+  return withDescriptions.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function normalizeLookupName(name) {
+  const trimmed = typeof name === "string" ? name.trim() : "";
+  return trimmed.endsWith(".sh") ? trimmed.slice(0, -3) : trimmed;
 }
 
 export async function resolveScriptPathByName(name) {
-  const scriptName = validateScriptName(name);
+  const scriptName = validateScriptName(normalizeLookupName(name));
   const scriptPath = getScriptPath(scriptName);
 
   try {
@@ -128,4 +174,14 @@ export async function resolveScriptPathByName(name) {
   }
 
   return scriptPath;
+}
+
+export async function getScriptInfo(name) {
+  const scriptPath = await resolveScriptPathByName(name);
+  const scriptName = path.basename(scriptPath, ".sh");
+  const content = await readFile(scriptPath, "utf8");
+  const data = extractScriptBlock(content);
+  const info =
+    data && typeof data === "object" && !Array.isArray(data) ? data : {};
+  return { name: scriptName, path: scriptPath, info };
 }

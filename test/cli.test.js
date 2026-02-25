@@ -64,7 +64,7 @@ async function createQixShim(binDir) {
     shimPath,
     `#!/usr/bin/env bash
 exec "${process.execPath}" "${cliPath}" "$@"
-`
+`,
   );
   await chmod(shimPath, 0o755);
   return shimPath;
@@ -106,7 +106,10 @@ test("add --name stores script under custom name", async (t) => {
   const source = path.join(cwd, "deploy.sh");
   await createScript(source, "#!/usr/bin/env bash\necho custom\n");
 
-  const result = runCli(["add", source, "--name", "prod-deploy"], { home, cwd });
+  const result = runCli(["add", source, "--name", "prod-deploy"], {
+    home,
+    cwd,
+  });
   assert.equal(result.status, 0);
 
   await access(managedScriptPath(home, "prod-deploy"), constants.F_OK);
@@ -177,13 +180,13 @@ test("list prints script names one per line", async (t) => {
   await mkdir(scriptsDir(home), { recursive: true });
   await writeFile(path.join(scriptsDir(home), "ignore.txt"), "x");
 
-  const listed = runCli(["list"], { home, cwd });
+  const listed = runCli(["list", "--plain"], { home, cwd });
   assert.equal(listed.status, 0);
 
   const names = listed.stdout
     .trim()
     .split("\n")
-    .map((entry) => entry.trim())
+    .map((line) => line.split(" — ")[0].trim())
     .filter(Boolean);
 
   assert.deepEqual(names, ["alpha", "beta"]);
@@ -192,7 +195,10 @@ test("list prints script names one per line", async (t) => {
 test("run executes managed script through bash and forwards args", async (t) => {
   const { home, cwd } = await setupSandbox(t);
   const source = path.join(cwd, "echoargs.sh");
-  await createScript(source, "#!/usr/bin/env bash\nprintf \"%s|%s\\n\" \"$1\" \"$2\"\n");
+  await createScript(
+    source,
+    '#!/usr/bin/env bash\nprintf "%s|%s\\n" "$1" "$2"\n',
+  );
 
   assert.equal(runCli(["add", source], { home, cwd }).status, 0);
 
@@ -210,6 +216,30 @@ test("run returns child script exit code", async (t) => {
 
   const result = runCli(["run", "exit7"], { home, cwd });
   assert.equal(result.status, 7);
+});
+
+test("run accepts name with .sh extension", async (t) => {
+  const { home, cwd } = await setupSandbox(t);
+  const source = path.join(cwd, "ext.sh");
+  await createScript(source, "#!/usr/bin/env bash\necho with-extension\n");
+
+  assert.equal(runCli(["add", source], { home, cwd }).status, 0);
+
+  const result = runCli(["run", "ext.sh"], { home, cwd });
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /with-extension/);
+});
+
+test("info accepts name with .sh extension", async (t) => {
+  const { home, cwd } = await setupSandbox(t);
+  const source = path.join(cwd, "extinfo.sh");
+  await createScript(source, "#!/usr/bin/env bash\necho x\n");
+
+  assert.equal(runCli(["add", source], { home, cwd }).status, 0);
+
+  const result = runCli(["info", "extinfo.sh"], { home, cwd });
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /^Name: extinfo/m);
 });
 
 test("invalid names are rejected", async (t) => {
@@ -281,9 +311,105 @@ printf '%s\n' "\${COMPREPLY[@]}"
         PATH: `${binDir}:${process.env.PATH || ""}`,
       },
       encoding: "utf8",
-    }
+    },
   );
 
   assert.equal(check.status, 0, check.stderr);
   assert.match(check.stdout, /^deploy$/m);
+});
+
+test("info script not found returns error", async (t) => {
+  const { home, cwd } = await setupSandbox(t);
+
+  const result = runCli(["info", "not-here"], { home, cwd });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Error: Script "not-here" not found/);
+});
+
+test("info script with no header block shows name only", async (t) => {
+  const { home, cwd } = await setupSandbox(t);
+  const source = path.join(cwd, "nometa.sh");
+  await createScript(source, "#!/usr/bin/env bash\necho nometa\n");
+
+  assert.equal(runCli(["add", source], { home, cwd }).status, 0);
+
+  const result = runCli(["info", "nometa"], { home, cwd });
+
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /Name: nometa/);
+  assert.ok(!result.stdout.includes("Description:"));
+  assert.ok(!result.stdout.includes("Usage:"));
+  assert.ok(!result.stdout.includes("Metadata:"));
+});
+
+test("info script with description shows name and description", async (t) => {
+  const { home, cwd } = await setupSandbox(t);
+  const source = path.join(cwd, "withdesc.sh");
+  const content = `#!/usr/bin/env bash
+# ---
+# description: Deploy to production
+# ---
+echo deploy
+`;
+  await createScript(source, content);
+
+  assert.equal(runCli(["add", source], { home, cwd }).status, 0);
+
+  const result = runCli(["info", "withdesc"], { home, cwd });
+
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /^Name: withdesc/m);
+  assert.match(result.stdout, /Description: Deploy to production/);
+});
+
+test("info script with usage shows usage in its own section", async (t) => {
+  const { home, cwd } = await setupSandbox(t);
+  const source = path.join(cwd, "withusage.sh");
+  const content = `#!/usr/bin/env bash
+# ---
+# metadata:
+#   usage: qix run withusage -- --env prod
+# ---
+echo run
+`;
+  await createScript(source, content);
+
+  assert.equal(runCli(["add", source], { home, cwd }).status, 0);
+
+  const result = runCli(["info", "withusage"], { home, cwd });
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /^Name: withusage/m);
+  assert.match(result.stdout, /Usage:/);
+  assert.match(result.stdout, /qix run withusage -- --env prod/);
+  assert.ok(
+    !result.stdout.includes("usage") || result.stdout.includes("Usage:"),
+  );
+});
+
+test("info script with multiple metadata shows table excluding usage and description", async (t) => {
+  const { home, cwd } = await setupSandbox(t);
+  const source = path.join(cwd, "fullmeta.sh");
+  const content = `#!/usr/bin/env bash
+# ---
+# description: Full metadata script
+# metadata:
+#   usage: qix run fullmeta
+#   author: Test Author
+#   version: "1.0"
+# ---
+echo full
+`;
+  await createScript(source, content);
+
+  assert.equal(runCli(["add", source], { home, cwd }).status, 0);
+
+  const result = runCli(["info", "fullmeta"], { home, cwd });
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /^Name: fullmeta/m);
+  assert.match(result.stdout, /Description: Full metadata script/);
+  assert.match(result.stdout, /Usage:/);
+  assert.match(result.stdout, /qix run fullmeta/);
+  assert.match(result.stdout, /Metadata/);
+  assert.match(result.stdout, /author.*Test Author/);
+  assert.match(result.stdout, /version.*1\.0/);
 });

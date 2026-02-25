@@ -3,6 +3,7 @@
 import { Command, CommanderError } from "commander";
 import {
   addScript,
+  getScriptInfo,
   linkScript,
   listScripts,
   resolveScriptPathByName,
@@ -18,8 +19,64 @@ function reportError(error) {
   }
 }
 
-function normalizeCommanderMessage(message) {
-  return message.replace(/^error:\s*/i, "");
+function formatListTable(scripts) {
+  if (scripts.length === 0) {
+    return "Name  Description\n----  -----------\n";
+  }
+  const nameHeader = "Name";
+  const descHeader = "Description";
+  const nameWidth = Math.max(
+    nameHeader.length,
+    ...scripts.map((s) => s.name.length),
+  );
+  const descWidth = Math.max(
+    descHeader.length,
+    ...scripts.map((s) => (s.description || "").length),
+  );
+  const pad = (s, w) => s.padEnd(w);
+  const sep = "-".repeat(nameWidth) + "  " + "-".repeat(descWidth);
+  const rows = [
+    pad(nameHeader, nameWidth) + "  " + pad(descHeader, descWidth),
+    sep,
+    ...scripts.map(
+      ({ name, description }) =>
+        pad(name, nameWidth) + "  " + pad(description || "", descWidth),
+    ),
+  ];
+  return rows.join("\n");
+}
+
+function formatMetadataValue(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function formatMetadataTable(metadata, excludeKeys = []) {
+  const entries = Object.entries(metadata).filter(
+    ([key]) => !excludeKeys.includes(key),
+  );
+  if (entries.length === 0) return "";
+  const keyHeader = "Key";
+  const valueHeader = "Value";
+  const keys = entries.map(([k]) => k);
+  const values = entries.map(([, v]) => formatMetadataValue(v));
+  const keyWidth = Math.max(keyHeader.length, ...keys.map((k) => k.length));
+  const valueWidth = Math.max(
+    valueHeader.length,
+    ...values.map((s) => s.length),
+  );
+  const pad = (s, w) => s.padEnd(w);
+  const sep = "-".repeat(keyWidth) + "  " + "-".repeat(valueWidth);
+  const rows = [
+    pad(keyHeader, keyWidth) + "  " + pad(valueHeader, valueWidth),
+    sep,
+    ...entries.map(
+      ([k, v]) =>
+        pad(k, keyWidth) + "  " + pad(formatMetadataValue(v), valueWidth),
+    ),
+  ];
+  return rows.join("\n");
 }
 
 async function main() {
@@ -39,7 +96,7 @@ Examples:
   qix add ./deploy.sh --name prod-deploy --force
   qix run prod-deploy -- --env staging
   source <(qix completion bash)
-`
+`,
     );
 
   program
@@ -76,11 +133,60 @@ Examples:
 
   program
     .command("list")
+    .alias("ls")
     .description("List all scripts")
-    .action(async () => {
-      const names = await listScripts();
-      for (const name of names) {
-        console.log(name);
+    .option("--plain", "one script per line (name or name — description)")
+    .option("--json", "output as JSON array")
+    .action(async (options) => {
+      const scripts = await listScripts();
+      if (options.json) {
+        const out = scripts.map(({ name, description }) =>
+          description ? { name, description } : { name },
+        );
+        console.log(JSON.stringify(out, null, 2));
+        return;
+      }
+      if (options.plain) {
+        for (const { name, description } of scripts) {
+          const line = description ? `${name} — ${description}` : name;
+          console.log(line);
+        }
+        return;
+      }
+      console.log(formatListTable(scripts));
+    });
+
+  program
+    .command("info")
+    .description("Show script name, description, usage, and metadata")
+    .argument("<name>", "script name")
+    .action(async (name) => {
+      const { name: scriptName, info } = await getScriptInfo(name);
+      console.log(`Name: ${scriptName}`);
+      if (
+        info.description !== undefined &&
+        info.description !== null &&
+        typeof info.description === "string"
+      ) {
+        console.log(`Description: ${info.description.trim()}`);
+      }
+
+      if (
+        info?.metadata?.usage !== undefined &&
+        info?.metadata?.usage !== null
+      ) {
+        console.log("\nUsage:");
+        console.log(formatMetadataValue(info.metadata.usage));
+      }
+      if (info?.metadata) {
+        const table = formatMetadataTable(info.metadata, [
+          "usage",
+          "description",
+        ]);
+        if (table) {
+          console.log("\nMetadata");
+          console.log(table);
+        }
       }
     });
 
@@ -102,7 +208,7 @@ Examples:
     .action(async (shell) => {
       if (shell !== "bash") {
         throw new Error(
-          `Unsupported shell "${shell}". Currently only "bash" is supported.`
+          `Unsupported shell "${shell}". Currently only "bash" is supported.`,
         );
       }
       console.log(getBashCompletionScript());
