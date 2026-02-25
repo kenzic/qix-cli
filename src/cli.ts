@@ -10,8 +10,13 @@ import {
 } from "./script-store.js";
 import { runScriptWithBash } from "./process.js";
 import { getBashCompletionScript } from "./completion.js";
+import type { ListedScript } from "./script-store.js";
 
-function reportError(error) {
+function normalizeCommanderMessage(message: string): string {
+  return message.replace(/^error:\s*/i, "").trim();
+}
+
+function reportError(error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   console.error(`Error: ${message}`);
   if (!process.exitCode || process.exitCode === 0) {
@@ -19,7 +24,7 @@ function reportError(error) {
   }
 }
 
-function formatListTable(scripts) {
+function formatListTable(scripts: ListedScript[]): string {
   if (scripts.length === 0) {
     return "Name  Description\n----  -----------\n";
   }
@@ -27,34 +32,37 @@ function formatListTable(scripts) {
   const descHeader = "Description";
   const nameWidth = Math.max(
     nameHeader.length,
-    ...scripts.map((s) => s.name.length),
+    ...scripts.map((s) => s.name.length)
   );
   const descWidth = Math.max(
     descHeader.length,
-    ...scripts.map((s) => (s.description || "").length),
+    ...scripts.map((s) => (s.description || "").length)
   );
-  const pad = (s, w) => s.padEnd(w);
+  const pad = (s: string, w: number) => s.padEnd(w);
   const sep = "-".repeat(nameWidth) + "  " + "-".repeat(descWidth);
   const rows = [
     pad(nameHeader, nameWidth) + "  " + pad(descHeader, descWidth),
     sep,
     ...scripts.map(
       ({ name, description }) =>
-        pad(name, nameWidth) + "  " + pad(description || "", descWidth),
+        pad(name, nameWidth) + "  " + pad(description || "", descWidth)
     ),
   ];
   return rows.join("\n");
 }
 
-function formatMetadataValue(value) {
+function formatMetadataValue(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
 
-function formatMetadataTable(metadata, excludeKeys = []) {
+function formatMetadataTable(
+  metadata: Record<string, unknown>,
+  excludeKeys: string[] = []
+): string {
   const entries = Object.entries(metadata).filter(
-    ([key]) => !excludeKeys.includes(key),
+    ([key]) => !excludeKeys.includes(key)
   );
   if (entries.length === 0) return "";
   const keyHeader = "Key";
@@ -64,22 +72,22 @@ function formatMetadataTable(metadata, excludeKeys = []) {
   const keyWidth = Math.max(keyHeader.length, ...keys.map((k) => k.length));
   const valueWidth = Math.max(
     valueHeader.length,
-    ...values.map((s) => s.length),
+    ...values.map((s) => s.length)
   );
-  const pad = (s, w) => s.padEnd(w);
+  const pad = (s: string, w: number) => s.padEnd(w);
   const sep = "-".repeat(keyWidth) + "  " + "-".repeat(valueWidth);
   const rows = [
     pad(keyHeader, keyWidth) + "  " + pad(valueHeader, valueWidth),
     sep,
     ...entries.map(
       ([k, v]) =>
-        pad(k, keyWidth) + "  " + pad(formatMetadataValue(v), valueWidth),
+        pad(k, keyWidth) + "  " + pad(formatMetadataValue(v), valueWidth)
     ),
   ];
   return rows.join("\n");
 }
 
-async function main() {
+async function main(): Promise<void> {
   const program = new Command();
 
   program
@@ -96,7 +104,7 @@ Examples:
   qix add ./deploy.sh --name prod-deploy --force
   qix run prod-deploy -- --env staging
   source <(qix completion bash)
-`,
+`
     );
 
   program
@@ -106,7 +114,7 @@ Examples:
     .option("--move", "move script instead of copying")
     .option("--name <name>", "name to store script as")
     .option("--force", "overwrite existing script with same name")
-    .action(async (script, options) => {
+    .action(async (script: string, options: { move?: boolean; name?: string; force?: boolean }) => {
       const result = await addScript({
         sourcePath: script,
         name: options.name,
@@ -122,7 +130,7 @@ Examples:
     .argument("<script>", "path to a script file")
     .option("--name <name>", "name to store script as")
     .option("--force", "overwrite existing script with same name")
-    .action(async (script, options) => {
+    .action(async (script: string, options: { name?: string; force?: boolean }) => {
       const result = await linkScript({
         sourcePath: script,
         name: options.name,
@@ -137,11 +145,11 @@ Examples:
     .description("List all scripts")
     .option("--plain", "one script per line (name or name — description)")
     .option("--json", "output as JSON array")
-    .action(async (options) => {
+    .action(async (options: { plain?: boolean; json?: boolean }) => {
       const scripts = await listScripts();
       if (options.json) {
-        const out = scripts.map(({ name, description }) =>
-          description ? { name, description } : { name },
+        const out = scripts.map(({ name, description }: ListedScript) =>
+          description ? { name, description } : { name }
         );
         console.log(JSON.stringify(out, null, 2));
         return;
@@ -160,7 +168,7 @@ Examples:
     .command("info")
     .description("Show script name, description, usage, and metadata")
     .argument("<name>", "script name")
-    .action(async (name) => {
+    .action(async (name: string) => {
       const { name: scriptName, info } = await getScriptInfo(name);
       console.log(`Name: ${scriptName}`);
       if (
@@ -171,18 +179,14 @@ Examples:
         console.log(`Description: ${info.description.trim()}`);
       }
 
-      if (
-        info?.metadata?.usage !== undefined &&
-        info?.metadata?.usage !== null
-      ) {
-        console.log("\nUsage:");
-        console.log(formatMetadataValue(info.metadata.usage));
-      }
-      if (info?.metadata) {
-        const table = formatMetadataTable(info.metadata, [
-          "usage",
-          "description",
-        ]);
+      const meta = info.metadata;
+      if (meta !== undefined && meta !== null && typeof meta === "object" && !Array.isArray(meta)) {
+        const metaObj = meta as Record<string, unknown>;
+        if (metaObj.usage !== undefined && metaObj.usage !== null) {
+          console.log("\nUsage:");
+          console.log(formatMetadataValue(metaObj.usage));
+        }
+        const table = formatMetadataTable(metaObj, ["usage", "description"]);
         if (table) {
           console.log("\nMetadata");
           console.log(table);
@@ -195,7 +199,7 @@ Examples:
     .description("Run a script (any args will be passed to the script)")
     .argument("<name>", "script name")
     .argument("[args...]", "arguments passed to the script")
-    .action(async (name, args) => {
+    .action(async (name: string, args: string[] = []) => {
       const scriptPath = await resolveScriptPathByName(name);
       const exitCode = await runScriptWithBash(scriptPath, args || []);
       process.exitCode = exitCode;
@@ -205,10 +209,10 @@ Examples:
     .command("completion")
     .description("Print shell completion script")
     .argument("[shell]", "shell name (currently only bash)", "bash")
-    .action(async (shell) => {
+    .action(async (shell: string) => {
       if (shell !== "bash") {
         throw new Error(
-          `Unsupported shell "${shell}". Currently only "bash" is supported.`,
+          `Unsupported shell "${shell}". Currently only "bash" is supported.`
         );
       }
       console.log(getBashCompletionScript());
@@ -222,7 +226,7 @@ Examples:
   await program.parseAsync(process.argv);
 }
 
-main().catch((error) => {
+main().catch((error: unknown) => {
   if (error instanceof CommanderError) {
     if (error.code === "commander.helpDisplayed") {
       process.exitCode = 0;

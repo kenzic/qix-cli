@@ -1,4 +1,4 @@
-export function getBashCompletionScript() {
+export function getBashCompletionScript(): string {
   return `# bash completion for qix
 _qix_completion() {
   local cur cmd scripts

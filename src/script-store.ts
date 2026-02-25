@@ -16,14 +16,49 @@ import matter from "gray-matter";
 import { resolveScriptName, validateScriptName } from "./names.js";
 import { ensureScriptsDir, getScriptPath, getScriptsDir } from "./paths.js";
 
-async function assertReadableFile(filePath) {
+export interface AddScriptOptions {
+  sourcePath: string;
+  name?: string | null;
+  move?: boolean;
+  force?: boolean;
+}
+
+export interface LinkScriptOptions {
+  sourcePath: string;
+  name?: string | null;
+  force?: boolean;
+}
+
+export interface ScriptInfo {
+  name: string;
+  path: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ListedScript {
+  name: string;
+  description?: string;
+}
+
+function isErrnoException(
+  err: unknown
+): err is NodeJS.ErrnoException {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err
+  );
+}
+
+async function assertReadableFile(filePath: string): Promise<string> {
   const resolved = path.resolve(filePath);
 
   let fileStat;
   try {
     fileStat = await stat(resolved);
-  } catch (error) {
-    if (error && error.code === "ENOENT") {
+  } catch (error: unknown) {
+    if (isErrnoException(error) && error.code === "ENOENT") {
       throw new Error(`Source script not found: ${resolved}`);
     }
     throw error;
@@ -42,12 +77,15 @@ async function assertReadableFile(filePath) {
   return resolved;
 }
 
-async function removeDestinationIfNeeded(destinationPath, force) {
+async function removeDestinationIfNeeded(
+  destinationPath: string,
+  force: boolean
+): Promise<void> {
   let existing;
   try {
     existing = await lstat(destinationPath);
-  } catch (error) {
-    if (error && error.code === "ENOENT") {
+  } catch (error: unknown) {
+    if (isErrnoException(error) && error.code === "ENOENT") {
       return;
     }
     throw error;
@@ -56,20 +94,20 @@ async function removeDestinationIfNeeded(destinationPath, force) {
   if (!force) {
     const scriptName = path.basename(destinationPath, ".sh");
     throw new Error(
-      `Script "${scriptName}" already exists. Use --force to overwrite.`,
+      `Script "${scriptName}" already exists. Use --force to overwrite.`
     );
   }
 
   if (existing.isDirectory() && !existing.isSymbolicLink()) {
     throw new Error(
-      `Cannot overwrite directory at destination: ${destinationPath}`,
+      `Cannot overwrite directory at destination: ${destinationPath}`
     );
   }
 
   await rm(destinationPath, { force: true });
 }
 
-async function setExecutableMode(filePath) {
+async function setExecutableMode(filePath: string): Promise<void> {
   await chmod(filePath, 0o755);
 }
 
@@ -78,7 +116,7 @@ export async function addScript({
   name,
   move = false,
   force = false,
-}) {
+}: AddScriptOptions): Promise<{ name: string; path: string }> {
   await ensureScriptsDir();
 
   const resolvedSource = await assertReadableFile(sourcePath);
@@ -98,7 +136,11 @@ export async function addScript({
   return { name: scriptName, path: destinationPath };
 }
 
-export async function linkScript({ sourcePath, name, force = false }) {
+export async function linkScript({
+  sourcePath,
+  name,
+  force = false,
+}: LinkScriptOptions): Promise<{ name: string; path: string }> {
   await ensureScriptsDir();
 
   const resolvedSource = await assertReadableFile(sourcePath);
@@ -112,7 +154,9 @@ export async function linkScript({ sourcePath, name, force = false }) {
   return { name: scriptName, path: destinationPath };
 }
 
-function extractScriptBlock(content) {
+function extractScriptBlock(
+  content: string
+): Record<string, unknown> | null {
   const match = content.match(/# ---\n([\s\S]*?)\n# ---/);
   if (!match) return null;
   const yamlLike = match[1]
@@ -120,10 +164,13 @@ function extractScriptBlock(content) {
     .map((line) => line.replace(/^# ?/, ""))
     .join("\n");
   const withDelims = `---\n${yamlLike}\n---`;
-  return matter(withDelims).data;
+  const data = matter(withDelims).data;
+  return data && typeof data === "object" && !Array.isArray(data)
+    ? (data as Record<string, unknown>)
+    : null;
 }
 
-export async function listScripts() {
+export async function listScripts(): Promise<ListedScript[]> {
   await ensureScriptsDir();
   const entries = await readdir(getScriptsDir(), { withFileTypes: true });
 
@@ -131,13 +178,13 @@ export async function listScripts() {
     .filter(
       (entry) =>
         entry.name.endsWith(".sh") &&
-        (entry.isFile() || entry.isSymbolicLink()),
+        (entry.isFile() || entry.isSymbolicLink())
     )
     .map((entry) => entry.name.slice(0, -3));
 
   const withDescriptions = await Promise.all(
-    scripts.map(async (name) => {
-      let description;
+    scripts.map(async (name): Promise<ListedScript> => {
+      let description: string | undefined;
       try {
         const content = await readFile(getScriptPath(name), "utf8");
         const data = extractScriptBlock(content);
@@ -149,25 +196,25 @@ export async function listScripts() {
         // ignore read errors (e.g. broken symlink)
       }
       return { name, description };
-    }),
+    })
   );
 
   return withDescriptions.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function normalizeLookupName(name) {
+function normalizeLookupName(name: string): string {
   const trimmed = typeof name === "string" ? name.trim() : "";
   return trimmed.endsWith(".sh") ? trimmed.slice(0, -3) : trimmed;
 }
 
-export async function resolveScriptPathByName(name) {
+export async function resolveScriptPathByName(name: string): Promise<string> {
   const scriptName = validateScriptName(normalizeLookupName(name));
   const scriptPath = getScriptPath(scriptName);
 
   try {
     await lstat(scriptPath);
-  } catch (error) {
-    if (error && error.code === "ENOENT") {
+  } catch (error: unknown) {
+    if (isErrnoException(error) && error.code === "ENOENT") {
       throw new Error(`Script "${scriptName}" not found.`);
     }
     throw error;
@@ -176,7 +223,11 @@ export async function resolveScriptPathByName(name) {
   return scriptPath;
 }
 
-export async function getScriptInfo(name) {
+export async function getScriptInfo(name: string): Promise<{
+  name: string;
+  path: string;
+  info: Record<string, unknown>;
+}> {
   const scriptPath = await resolveScriptPathByName(name);
   const scriptName = path.basename(scriptPath, ".sh");
   const content = await readFile(scriptPath, "utf8");

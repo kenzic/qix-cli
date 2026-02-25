@@ -2,11 +2,11 @@ import path from "node:path";
 
 export const VALID_NAME_RE = /^[A-Za-z0-9._-]+$/;
 
-export function deriveNameFromScriptPath(scriptPath) {
+export function deriveNameFromScriptPath(scriptPath: string): string {
   return path.parse(scriptPath).name;
 }
 
-export function validateScriptName(name) {
+export function validateScriptName(name: string): string {
   if (typeof name !== "string" || name.trim() === "") {
     throw new Error("Invalid script name. Name cannot be empty.");
   }
@@ -20,7 +20,10 @@ export function validateScriptName(name) {
   return name;
 }
 
-export function resolveScriptName(sourcePath, explicitName) {
+export function resolveScriptName(
+  sourcePath: string,
+  explicitName?: string | null
+): string {
   const candidate = explicitName ?? deriveNameFromScriptPath(sourcePath);
   return validateScriptName(candidate);
 }
