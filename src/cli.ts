@@ -12,6 +12,42 @@ import { runScriptWithBash } from "./process.js";
 import { getBashCompletionScript } from "./completion.js";
 import type { ListedScript } from "./script-store.js";
 
+const HEADER = `                                                                                             
+                                                   ░░░                                       
+                              ░                 ▒▒▒▓▓▓▒░                                     
+                              ░░░    ░▒▒▒░░▒▒▒▒▒▒░▓▓▒▒▒                                      
+                             ░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░▒▓▓▒▒░                                     
+                            ░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓▓▒░░░░░░░░░░░░                           
+                           ░▒▒▒▒▒▒▒░░░░░░░░░▒▒▒▒▒▒▒▒▒░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒░                      
+                         ░░▒▒▒▒▒▒░░░░▒██▓░░░░░▒▒▒▒▒▒░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░                 
+                        ░▒▒▒▒▒▒▒▒░░▒███▓▓█▓░░░▒▒▒▒▓▒▒▒░░░░░▒▒▒░▒▒▒▒░░░▒▒▒▒▒▒▒▒░              
+                       ░▒▒▒▒▒▒▒▒░░░▒▓█████▓░░░░░░░    ░░░░░░░░░░▒░▒░░░░░░▒░▒▒▒▒▒▒░           
+                      ▒▒▒▒▒▒▒▒▒░░░░░░░▒▒▒▒░░░░░░░░░░░░░░░░░░░░░░░▒░░░░░░░░░▒░▒▒▒▒▒▒▒░        
+                 ░░  ░▒▒▒▒▒▒▒▒▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▒▒░       
+                    ▒▒▒▒▒▒▒▒▒▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░     
+                  ░░▒▒▒▒▒▒▒▒▓▒▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▒░░░░░░░░░░░░░░░░░░░░░▒░░    
+                   ░▒▒▒▒▒▒▒▓▓▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▒▒░░░░░░░░░░░░░░░░░░░░░░▒░░   
+                  ░░▒▒▒▒▓▓▒▓▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░▒▒▒▒░░▒░░░░░░░░░░░░░░░░░░░░░░░▒▒▒░  
+                   ░░▒▒▓▓▒▒▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ ░░░░░░░░░░▒░░░░░ 
+                     ░░▒▒▒▒▒▒░░░░░░░░░░░░░▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░ ░░     ░░ ░░░░░▒▒░░░░
+                       ░░░▒░░░▒░░░░░░░▒░░░░▒░░░░░░░░░░░░░░░░░░░░░░░░    ░ ░       ░░░░░░░▒░▒▒
+                          ░░░▒▒▒▒▒░▒░▒░▒▒▒▒░░░░░░░░░░░░░░░░░░░░░░░░ ░   ░  ░       ░░░░░░░▒▒▒
+                            ░░▒▒▒▒▒▒▒▒▒▒░▒▒▒░░░░░░░░░░░░░░░░░░░░░░░░░  ░░    ░░  ░  ░░░░░▒▒▒▒
+                              ░▒▒▒▒▒▒▒▒▒▒▒▒░▒▒▒░░░░░░░░░░░░░░░░░░░░░ ░░  ░░    ░░   ░░░░▒▒▒▒▒
+                               ░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░ ░░     ░░░░░░▒▒▒▒▒▒
+                                ░▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░ ░░░     ░░░░▒▒▒▒▒▒
+                                ░▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ ░░░░░░░▒▒▒▒▒▒
+                                ░▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▒▒▒▒▒
+                                 ░▒▒▒▒▒▒▒▒▒▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▒▒▒▒
+                                 ░▒▓▓▓▓▓▓▓▒▒▒▒░░░░░░░░░░░░░░░░▒░░░▒▒▒▒░░░░░░░░░░░░░░░░░░░░░░▒
+                                 ░▒▓▓▓▓▒▒░ ░░░░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░░░░░░░░░░░░░░░░
+                                ░▒▓▓█▒░▒▒▒▒░░░░░░░░▒▒▒▒▒▒▒▒▓▒▒▒▒▒▒▓▒▓▓▓▒▒▒▒▒▒░░▒▒░░░░░░░░░░░░
+                           ░▒▒▒▓▓▓███▓▓▓▒░░░░░░░▒▒▓▓▓▓▓▓▓▓▓░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+                         ░░░░▒▒▒▒▒▒▒▒▒▒▒░▒▒░░░▒▒▒▒▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒░░░░░░░░░░░░░░░▒▓▓▒▒▒░▒░░░░░
+                                 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  
+                                               
+`;
+
 function normalizeCommanderMessage(message: string): string {
   return message.replace(/^error:\s*/i, "").trim();
 }
@@ -32,11 +68,11 @@ function formatListTable(scripts: ListedScript[]): string {
   const descHeader = "Description";
   const nameWidth = Math.max(
     nameHeader.length,
-    ...scripts.map((s) => s.name.length)
+    ...scripts.map((s) => s.name.length),
   );
   const descWidth = Math.max(
     descHeader.length,
-    ...scripts.map((s) => (s.description || "").length)
+    ...scripts.map((s) => (s.description || "").length),
   );
   const pad = (s: string, w: number) => s.padEnd(w);
   const sep = "-".repeat(nameWidth) + "  " + "-".repeat(descWidth);
@@ -45,7 +81,7 @@ function formatListTable(scripts: ListedScript[]): string {
     sep,
     ...scripts.map(
       ({ name, description }) =>
-        pad(name, nameWidth) + "  " + pad(description || "", descWidth)
+        pad(name, nameWidth) + "  " + pad(description || "", descWidth),
     ),
   ];
   return rows.join("\n");
@@ -59,10 +95,10 @@ function formatMetadataValue(value: unknown): string {
 
 function formatMetadataTable(
   metadata: Record<string, unknown>,
-  excludeKeys: string[] = []
+  excludeKeys: string[] = [],
 ): string {
   const entries = Object.entries(metadata).filter(
-    ([key]) => !excludeKeys.includes(key)
+    ([key]) => !excludeKeys.includes(key),
   );
   if (entries.length === 0) return "";
   const keyHeader = "Key";
@@ -72,7 +108,7 @@ function formatMetadataTable(
   const keyWidth = Math.max(keyHeader.length, ...keys.map((k) => k.length));
   const valueWidth = Math.max(
     valueHeader.length,
-    ...values.map((s) => s.length)
+    ...values.map((s) => s.length),
   );
   const pad = (s: string, w: number) => s.padEnd(w);
   const sep = "-".repeat(keyWidth) + "  " + "-".repeat(valueWidth);
@@ -81,7 +117,7 @@ function formatMetadataTable(
     sep,
     ...entries.map(
       ([k, v]) =>
-        pad(k, keyWidth) + "  " + pad(formatMetadataValue(v), valueWidth)
+        pad(k, keyWidth) + "  " + pad(formatMetadataValue(v), valueWidth),
     ),
   ];
   return rows.join("\n");
@@ -95,6 +131,7 @@ async function main(): Promise<void> {
     .usage("[command]")
     .description("Manage bash scripts from a single CLI.")
     .showHelpAfterError()
+    .addHelpText("before", HEADER)
     .addHelpText(
       "after",
       `
@@ -104,7 +141,7 @@ Examples:
   qix add ./deploy.sh --name prod-deploy --force
   qix run prod-deploy -- --env staging
   source <(qix completion bash)
-`
+`,
     );
 
   program
@@ -114,15 +151,20 @@ Examples:
     .option("--move", "move script instead of copying")
     .option("--name <name>", "name to store script as")
     .option("--force", "overwrite existing script with same name")
-    .action(async (script: string, options: { move?: boolean; name?: string; force?: boolean }) => {
-      const result = await addScript({
-        sourcePath: script,
-        name: options.name,
-        move: options.move,
-        force: options.force,
-      });
-      console.log(`${options.move ? "Moved" : "Added"} "${result.name}"`);
-    });
+    .action(
+      async (
+        script: string,
+        options: { move?: boolean; name?: string; force?: boolean },
+      ) => {
+        const result = await addScript({
+          sourcePath: script,
+          name: options.name,
+          move: options.move,
+          force: options.force,
+        });
+        console.log(`${options.move ? "Moved" : "Added"} "${result.name}"`);
+      },
+    );
 
   program
     .command("link")
@@ -130,14 +172,16 @@ Examples:
     .argument("<script>", "path to a script file")
     .option("--name <name>", "name to store script as")
     .option("--force", "overwrite existing script with same name")
-    .action(async (script: string, options: { name?: string; force?: boolean }) => {
-      const result = await linkScript({
-        sourcePath: script,
-        name: options.name,
-        force: options.force,
-      });
-      console.log(`Linked "${result.name}"`);
-    });
+    .action(
+      async (script: string, options: { name?: string; force?: boolean }) => {
+        const result = await linkScript({
+          sourcePath: script,
+          name: options.name,
+          force: options.force,
+        });
+        console.log(`Linked "${result.name}"`);
+      },
+    );
 
   program
     .command("list")
@@ -149,7 +193,7 @@ Examples:
       const scripts = await listScripts();
       if (options.json) {
         const out = scripts.map(({ name, description }: ListedScript) =>
-          description ? { name, description } : { name }
+          description ? { name, description } : { name },
         );
         console.log(JSON.stringify(out, null, 2));
         return;
@@ -180,7 +224,12 @@ Examples:
       }
 
       const meta = info.metadata;
-      if (meta !== undefined && meta !== null && typeof meta === "object" && !Array.isArray(meta)) {
+      if (
+        meta !== undefined &&
+        meta !== null &&
+        typeof meta === "object" &&
+        !Array.isArray(meta)
+      ) {
         const metaObj = meta as Record<string, unknown>;
         if (metaObj.usage !== undefined && metaObj.usage !== null) {
           console.log("\nUsage:");
@@ -212,7 +261,7 @@ Examples:
     .action(async (shell: string) => {
       if (shell !== "bash") {
         throw new Error(
-          `Unsupported shell "${shell}". Currently only "bash" is supported.`
+          `Unsupported shell "${shell}". Currently only "bash" is supported.`,
         );
       }
       console.log(getBashCompletionScript());
