@@ -12,6 +12,8 @@ import { runScriptWithBash } from "./process.js";
 import { getBashCompletionScript } from "./completion.js";
 import type { ListedScript } from "./script-store.js";
 
+const VERSION = "0.2.0";
+
 const HEADER = `                                                                                             
                                        ░░░                                       
                   ░                 ▒▒▒▓▓▓▒░                                     
@@ -129,6 +131,7 @@ async function main(): Promise<void> {
   program
     .name("qix")
     .usage("[command]")
+    .version(VERSION)
     .description("Manage bash scripts from a single CLI.")
     .showHelpAfterError()
     .addHelpText("before", HEADER)
