@@ -12,9 +12,9 @@ import {
   stat,
   symlink,
 } from "node:fs/promises";
-import matter from "gray-matter";
 import { resolveScriptName, validateScriptName } from "./names.js";
 import { ensureScriptsDir, getScriptPath, getScriptsDir } from "./paths.js";
+import { parseScriptInfo } from "./util/parse-script-info.js";
 
 export interface AddScriptOptions {
   sourcePath: string;
@@ -154,22 +154,6 @@ export async function linkScript({
   return { name: scriptName, path: destinationPath };
 }
 
-function extractScriptBlock(
-  content: string
-): Record<string, unknown> | null {
-  const match = content.match(/# ---\n([\s\S]*?)\n# ---/);
-  if (!match) return null;
-  const yamlLike = match[1]
-    .split("\n")
-    .map((line) => line.replace(/^# ?/, ""))
-    .join("\n");
-  const withDelims = `---\n${yamlLike}\n---`;
-  const data = matter(withDelims).data;
-  return data && typeof data === "object" && !Array.isArray(data)
-    ? (data as Record<string, unknown>)
-    : null;
-}
-
 export async function listScripts(): Promise<ListedScript[]> {
   await ensureScriptsDir();
   const entries = await readdir(getScriptsDir(), { withFileTypes: true });
@@ -187,9 +171,9 @@ export async function listScripts(): Promise<ListedScript[]> {
       let description: string | undefined;
       try {
         const content = await readFile(getScriptPath(name), "utf8");
-        const data = extractScriptBlock(content);
+        const data = parseScriptInfo(content);
         description =
-          data && typeof data.description === "string"
+          typeof data.description === "string"
             ? data.description.trim()
             : undefined;
       } catch {
@@ -231,8 +215,6 @@ export async function getScriptInfo(name: string): Promise<{
   const scriptPath = await resolveScriptPathByName(name);
   const scriptName = path.basename(scriptPath, ".sh");
   const content = await readFile(scriptPath, "utf8");
-  const data = extractScriptBlock(content);
-  const info =
-    data && typeof data === "object" && !Array.isArray(data) ? data : {};
+  const info = parseScriptInfo(content);
   return { name: scriptName, path: scriptPath, info };
 }

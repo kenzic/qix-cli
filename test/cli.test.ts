@@ -467,6 +467,86 @@ echo full
     expect(result.stdout).toMatch(/version.*1\.0/);
   });
 
+  it("info falls back to common shell doc comments when no qix header", async () => {
+    const { home, cwd } = await setupSandbox();
+    const source = path.join(cwd, "shell-doc.sh");
+    const content = `#!/bin/bash
+#
+# shell-doc.sh
+#
+# Upgrades specified Homebrew packages.
+# Falls back to installation if missing.
+#
+# Usage:
+#   ./shell-doc.sh
+#
+# Exit codes:
+#   0 - All packages upgraded successfully
+#   1 - Error occurred during upgrade
+set -euo pipefail
+echo ok
+`;
+    await createScript(source, content);
+
+    expect(runCli(["add", source], { home, cwd }).status).toBe(0);
+
+    const result = runCli(["info", "shell-doc"], { home, cwd });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/^Name: shell-doc/m);
+    expect(result.stdout).toMatch(/Upgrades specified Homebrew packages/);
+    expect(result.stdout).toMatch(/Usage:/);
+    expect(result.stdout).toMatch(/\.\/shell-doc\.sh/);
+    expect(result.stdout).toMatch(/exitCodes/);
+    expect(result.stdout).toMatch(/All packages upgraded successfully/);
+  });
+
+  it("list plain includes description from shell doc fallback", async () => {
+    const { home, cwd } = await setupSandbox();
+    const source = path.join(cwd, "listed-fallback.sh");
+    const content = `#!/bin/bash
+#
+# listed-fallback.sh
+#
+# One-line summary for list output.
+set -e
+echo ok
+`;
+    await createScript(source, content);
+
+    expect(runCli(["add", source], { home, cwd }).status).toBe(0);
+
+    const result = runCli(["list", "--plain"], { home, cwd });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(
+      /listed-fallback — One-line summary for list output/,
+    );
+  });
+
+  it("info prefers qix header when both qix and shell doc comments exist", async () => {
+    const { home, cwd } = await setupSandbox();
+    const source = path.join(cwd, "precedence.sh");
+    const content = `#!/usr/bin/env bash
+# ---
+# description: Qix description wins
+# metadata:
+#   usage: qix run precedence -- --flag
+# ---
+# Usage:
+#   ./wrong.sh
+set -e
+echo x
+`;
+    await createScript(source, content);
+
+    expect(runCli(["add", source], { home, cwd }).status).toBe(0);
+
+    const result = runCli(["info", "precedence"], { home, cwd });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/Description: Qix description wins/);
+    expect(result.stdout).toMatch(/qix run precedence -- --flag/);
+    expect(result.stdout).not.toMatch(/\.\/wrong\.sh/);
+  });
+
   it("cron add/list/remove manages only qix-tagged entries", async () => {
     const { home, cwd } = await setupSandbox();
     const source = path.join(cwd, "nightly.sh");
