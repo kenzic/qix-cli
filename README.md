@@ -86,6 +86,17 @@ pnpm add -g qix-cli
   qix run prod-deploy -- --env staging
   ```
 
+- **Manage cron** entries for scripts:
+
+  ```bash
+  qix cron add prod-deploy --schedule "*/15 * * * *" --comment heartbeat
+  qix cron add prod-deploy --schedule "0 2 * * *" --args "--env prod"
+  qix cron list
+  qix cron list --name prod-deploy --json
+  qix cron remove prod-deploy --comment heartbeat
+  qix cron remove prod-deploy --all
+  ```
+
 - **Bash completion**:
 
   ```bash

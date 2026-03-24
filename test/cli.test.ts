@@ -42,11 +42,17 @@ function managedScriptPath(home: string, name: string): string {
 
 function runCli(
   args: string[],
-  { home, cwd }: { home: string; cwd: string }
+  {
+    home,
+    cwd,
+    pathPrefix,
+  }: { home: string; cwd: string; pathPrefix?: string }
 ): { status: number | null; stdout: string; stderr: string } {
+  const basePath = process.env.PATH || "";
+  const composedPath = pathPrefix ? `${pathPrefix}:${basePath}` : basePath;
   const result = spawnSync(process.execPath, [cliPath, ...args], {
     cwd,
-    env: { ...process.env, HOME: home },
+    env: { ...process.env, HOME: home, PATH: composedPath },
     encoding: "utf8",
   });
   return {
@@ -71,6 +77,36 @@ exec "${process.execPath}" "${cliPath}" "$@"
   );
   await chmod(shimPath, 0o755);
   return shimPath;
+}
+
+async function createCrontabMock(binDir: string, home: string): Promise<string> {
+  await mkdir(binDir, { recursive: true });
+  const mockPath = path.join(binDir, "crontab");
+  const dbPath = path.join(home, ".qix", "mock-crontab.txt");
+  await mkdir(path.dirname(dbPath), { recursive: true });
+  await writeFile(
+    mockPath,
+    `#!/usr/bin/env bash
+set -euo pipefail
+DB_FILE="${dbPath}"
+if [[ "$#" -eq 1 && "$1" == "-l" ]]; then
+  if [[ -f "$DB_FILE" ]]; then
+    cat "$DB_FILE"
+    exit 0
+  fi
+  echo "no crontab for test-user" >&2
+  exit 1
+fi
+if [[ "$#" -eq 1 && "$1" == "-" ]]; then
+  cat > "$DB_FILE"
+  exit 0
+fi
+echo "unsupported args: $*" >&2
+exit 2
+`,
+  );
+  await chmod(mockPath, 0o755);
+  return dbPath;
 }
 
 afterEach(async () => {
@@ -429,5 +465,73 @@ echo full
     expect(result.stdout).toMatch(/Metadata/);
     expect(result.stdout).toMatch(/author.*Test Author/);
     expect(result.stdout).toMatch(/version.*1\.0/);
+  });
+
+  it("cron add/list/remove manages only qix-tagged entries", async () => {
+    const { home, cwd } = await setupSandbox();
+    const source = path.join(cwd, "nightly.sh");
+    await createScript(source, "#!/usr/bin/env bash\necho nightly\n");
+    expect(runCli(["add", source], { home, cwd }).status).toBe(0);
+
+    const binDir = path.join(cwd, "bin");
+    const dbPath = await createCrontabMock(binDir, home);
+    await writeFile(
+      dbPath,
+      "0 1 * * * echo legacy-job\n15 2 * * * echo keep-me # not-qix:entry\n",
+    );
+
+    const addResult = runCli(
+      [
+        "cron",
+        "add",
+        "nightly",
+        "--schedule",
+        "*/5 * * * *",
+        "--comment",
+        "nightly-run",
+      ],
+      { home, cwd, pathPrefix: binDir },
+    );
+    expect(addResult.status).toBe(0);
+    expect(addResult.stdout).toMatch(/Added cron for "nightly"/);
+
+    const listed = runCli(["cron", "list"], { home, cwd, pathPrefix: binDir });
+    expect(listed.status).toBe(0);
+    expect(listed.stdout).toMatch(/\*\/5 \* \* \* \* \| nightly \|/);
+    expect(listed.stdout).not.toMatch(/legacy-job/);
+
+    const removed = runCli(
+      [
+        "cron",
+        "remove",
+        "nightly",
+        "--schedule",
+        "*/5 * * * *",
+      ],
+      { home, cwd, pathPrefix: binDir },
+    );
+    expect(removed.status).toBe(0);
+    expect(removed.stdout).toMatch(/Removed 1 cron entry/);
+
+    const finalCrontab = await readFile(dbPath, "utf8");
+    expect(finalCrontab).toMatch(/echo legacy-job/);
+    expect(finalCrontab).toMatch(/echo keep-me/);
+    expect(finalCrontab).not.toMatch(/qix:nightly/);
+  });
+
+  it("cron remove requires a removal selector", async () => {
+    const { home, cwd } = await setupSandbox();
+    const binDir = path.join(cwd, "bin");
+    await createCrontabMock(binDir, home);
+
+    const result = runCli(["cron", "remove", "nightly"], {
+      home,
+      cwd,
+      pathPrefix: binDir,
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(
+      /Error: Specify --all, --schedule, or --comment to remove entries/,
+    );
   });
 });

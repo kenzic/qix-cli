@@ -11,6 +11,11 @@ import {
 import { runScriptWithBash } from "./process.js";
 import { getBashCompletionScript } from "./completion.js";
 import type { ListedScript } from "./script-store.js";
+import {
+  addCronEntry,
+  listCronEntries,
+  removeCronEntries,
+} from "./cron-store.js";
 
 const VERSION = "0.2.0";
 
@@ -268,6 +273,125 @@ Examples:
         );
       }
       console.log(getBashCompletionScript());
+    });
+
+  const cron = program
+    .command("cron")
+    .description("Manage cron entries for qix scripts");
+
+  cron
+    .command("add")
+    .description("Add a cron entry for a managed script")
+    .argument("<name>", "script name")
+    .requiredOption("--schedule <cron_expr>", "cron schedule expression")
+    .option("--args <arg string>", "arguments passed to the script")
+    .option("--env <key=value...>", "environment assignment", (value, prev) => {
+      const items = Array.isArray(prev) ? prev : [];
+      items.push(value);
+      return items;
+    }, [] as string[])
+    .option("--comment <label>", "freeform label for easier removal/filtering")
+    .option("--dry-run", "print the cron line without writing crontab")
+    .action(
+      async (
+        name: string,
+        options: {
+          schedule: string;
+          args?: string;
+          env?: string[];
+          comment?: string;
+          dryRun?: boolean;
+        },
+      ) => {
+        const entry = await addCronEntry({
+          name,
+          schedule: options.schedule,
+          args: options.args,
+          env: options.env,
+          comment: options.comment,
+          dryRun: options.dryRun,
+        });
+        if (options.dryRun) {
+          console.log(entry.raw);
+          return;
+        }
+        console.log(`Added cron for "${entry.scriptName}"`);
+      },
+    );
+
+  cron
+    .command("remove")
+    .description("Remove cron entries for a managed script")
+    .argument("<name>", "script name")
+    .option("--schedule <cron_expr>", "only remove matching schedule")
+    .option("--comment <label>", "only remove matching comment label")
+    .option("--all", "remove all qix cron entries for script")
+    .option("--dry-run", "show removable entries without writing crontab")
+    .action(
+      async (
+        name: string,
+        options: {
+          schedule?: string;
+          comment?: string;
+          all?: boolean;
+          dryRun?: boolean;
+        },
+      ) => {
+        if (!options.all && !options.schedule && !options.comment) {
+          throw new Error(
+            'Specify --all, --schedule, or --comment to remove entries.',
+          );
+        }
+        const result = await removeCronEntries({
+          name,
+          schedule: options.schedule,
+          comment: options.comment,
+          all: options.all,
+          dryRun: options.dryRun,
+        });
+        if (options.dryRun) {
+          for (const entry of result.removed) {
+            console.log(entry.raw);
+          }
+          console.log(`Matched ${result.removed.length} cron entr${result.removed.length === 1 ? "y" : "ies"}`);
+          return;
+        }
+        console.log(`Removed ${result.removed.length} cron entr${result.removed.length === 1 ? "y" : "ies"}`);
+      },
+    );
+
+  cron
+    .command("list")
+    .description("List qix-managed cron entries")
+    .option("--name <name>", "filter by script name")
+    .option("--json", "output as JSON array")
+    .action(async (options: { name?: string; json?: boolean }) => {
+      const entries = await listCronEntries({ name: options.name });
+      if (options.json) {
+        console.log(
+          JSON.stringify(
+            entries.map((entry) => ({
+              schedule: entry.schedule,
+              scriptName: entry.scriptName,
+              command: entry.command,
+              comment: entry.comment,
+              marker: entry.marker,
+            })),
+            null,
+            2,
+          ),
+        );
+        return;
+      }
+      if (entries.length === 0) {
+        console.log("No qix-managed cron entries found.");
+        return;
+      }
+      for (const entry of entries) {
+        console.log(
+          `${entry.schedule} | ${entry.scriptName} | ${entry.command}${entry.comment ? ` | ${entry.comment}` : ""}`,
+        );
+      }
     });
 
   if (process.argv.length <= 2) {
