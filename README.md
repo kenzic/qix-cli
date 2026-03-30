@@ -1,6 +1,6 @@
 # qix
 
-CLI for managing bash scripts. Add, link, list, and run scripts from a single place (`~/.qix/scripts`) with optional metadata and shell completion.
+CLI for managing bash scripts. Add, link, list, and run scripts from a single place (`~/.qix/scripts`), author new scripts with an agentic CLI (`qix make`), optional metadata, and shell completion.
 
 ```
                                                    ░░░
@@ -85,6 +85,17 @@ pnpm add -g qix-cli
   ```bash
   qix run prod-deploy -- --env staging
   ```
+
+- **Make** a new script with an agentic CLI (default: [Claude Code](https://docs.anthropic.com/en/docs/claude-code/cli-usage)). `qix make` appends qix-specific instructions (bash style, qix YAML header, logging with a verbosity flag that only affects logs—not the script’s primary output) and opens the provider in the current directory. When you are satisfied with the file on disk, register it with `qix add`:
+
+  ```bash
+  qix make my-script
+  qix make --provider claude-code my-script
+  # After the agent writes the script:
+  qix add ./my-script.sh --move
+  ```
+
+  Override the Claude Code binary if needed: `QIX_MAKE_CLAUDE_BIN=/path/to/claude`. Additional providers can be added over time; `--provider` selects one (today only `claude-code` is built in).
 
 - **Manage cron** entries for scripts:
 
