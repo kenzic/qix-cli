@@ -249,12 +249,49 @@ describe("qix cli", () => {
 
     expect(runCli(["add", source], { home, cwd }).status).toBe(0);
 
-    const result = runCli(["run", "echoargs", "--", "foo", "bar"], {
+    const result = runCli(["run", "echoargs", "foo", "bar"], {
       home,
       cwd,
     });
     expect(result.status).toBe(0);
     expect(result.stdout).toMatch(/foo\|bar/);
+  });
+
+  it("run forwards -- to the script when it appears after the script name", async () => {
+    const { home, cwd } = await setupSandbox();
+    const source = path.join(cwd, "echoargs2.sh");
+    await createScript(
+      source,
+      '#!/usr/bin/env bash\nprintf "%s|%s\\n" "$1" "$2"\n'
+    );
+
+    expect(runCli(["add", source, "--name", "echoargs2"], { home, cwd }).status).toBe(
+      0
+    );
+
+    const result = runCli(["run", "echoargs2", "--", "foo", "bar"], {
+      home,
+      cwd,
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/--\|foo/);
+  });
+
+  it("run forwards flags after script name without --", async () => {
+    const { home, cwd } = await setupSandbox();
+    const source = path.join(cwd, "printargv.sh");
+    await createScript(
+      source,
+      "#!/usr/bin/env bash\nprintf '%s\\n' \"$@\"\n"
+    );
+
+    expect(runCli(["add", source, "--name", "printargv"], { home, cwd }).status).toBe(
+      0
+    );
+
+    const result = runCli(["run", "printargv", "-v"], { home, cwd });
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim().split("\n")).toContain("-v");
   });
 
   it("run returns child script exit code", async () => {
