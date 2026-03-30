@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { resolveScriptPathByName } from "./script-store.js";
+import path from "node:path";
+import { normalizeScriptNameInput, resolveScriptPathByName } from "./script-store.js";
 
 const QIX_MARKER_PREFIX = "qix:";
 
@@ -11,6 +12,8 @@ export interface CronEntry {
   scriptName: string;
   comment?: string;
   hash: string;
+  /** Human-readable line above the cron line (also removed on `cron remove`). */
+  headerLine?: string;
   raw: string;
 }
 
@@ -75,6 +78,49 @@ function makeHash(input: string): string {
   return createHash("sha256").update(input).digest("hex").slice(0, 12);
 }
 
+/** True if this token begins the command portion of a crontab line (after time fields). */
+function looksLikeCronCommandStart(token: string): boolean {
+  if (!token) return false;
+  if (/^(bash|sh|zsh|dash|env|nohup|run-parts|nice|sudo)$/i.test(token)) {
+    return true;
+  }
+  if (token.startsWith("/") || token.startsWith("./")) return true;
+  if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)) return true;
+  return false;
+}
+
+/**
+ * Split a cron line (without the trailing `# qix:...` marker) into schedule + command.
+ * Supports 5-field (Vixie) and 6-field (e.g. some macOS / Quartz) schedules.
+ */
+function splitScheduleAndCommand(lineWithoutMarker: string): {
+  schedule: string;
+  command: string;
+} | null {
+  const tokens = lineWithoutMarker.trim().split(/\s+/);
+  if (tokens.length < 6) return null;
+
+  const trySplit = (fieldCount: number): { schedule: string; command: string } | null => {
+    if (tokens.length < fieldCount + 1) return null;
+    const schedule = tokens.slice(0, fieldCount).join(" ");
+    const command = tokens.slice(fieldCount).join(" ");
+    return { schedule, command };
+  };
+
+  const five = trySplit(5);
+  if (five && looksLikeCronCommandStart(tokens[5])) {
+    return five;
+  }
+
+  const six = trySplit(6);
+  if (six && tokens.length > 6 && looksLikeCronCommandStart(tokens[6])) {
+    return six;
+  }
+
+  if (five) return five;
+  return null;
+}
+
 function parseQixMarker(marker: string): {
   scriptName: string;
   comment?: string;
@@ -106,11 +152,10 @@ function parseQixCronLine(line: string): CronEntry | null {
   if (!markerData) return null;
 
   const lineWithoutMarker = trimmed.slice(0, markerMatch.index).trim();
-  const tokens = lineWithoutMarker.split(/\s+/);
-  if (tokens.length < 6) return null;
+  const split = splitScheduleAndCommand(lineWithoutMarker);
+  if (!split) return null;
 
-  const schedule = tokens.slice(0, 5).join(" ");
-  const command = tokens.slice(5).join(" ");
+  const { schedule, command } = split;
 
   return {
     schedule,
@@ -121,6 +166,20 @@ function parseQixCronLine(line: string): CronEntry | null {
     hash: markerData.hash,
     raw: line,
   };
+}
+
+/** Lines we write above each qix cron line; removed together on `cron remove`. */
+export function isQixCronHeaderLine(line: string): boolean {
+  return /^\s*#\s*qix cron:/i.test(line.trim());
+}
+
+function buildQixCronHeaderLine(
+  scriptName: string,
+  schedule: string,
+  label?: string,
+): string {
+  const labelPart = label ? ` — ${label}` : "";
+  return `# qix cron: ${scriptName} @ ${schedule}${labelPart}`;
 }
 
 function runCrontab(
@@ -187,12 +246,21 @@ export async function listCronEntries(
   options: ListCronOptions = {},
 ): Promise<CronEntry[]> {
   const lines = await readCrontabLines();
-  const entries = lines
-    .map((line) => parseQixCronLine(line))
-    .filter((entry): entry is CronEntry => Boolean(entry));
+  const entries: CronEntry[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const entry = parseQixCronLine(lines[i]);
+    if (!entry) continue;
+    const headerLine =
+      i > 0 && isQixCronHeaderLine(lines[i - 1])
+        ? lines[i - 1].trim()
+        : undefined;
+    entries.push({ ...entry, headerLine });
+  }
 
   if (options.name) {
-    return entries.filter((entry) => entry.scriptName === options.name);
+    const filterName = normalizeScriptNameInput(options.name);
+    return entries.filter((entry) => entry.scriptName === filterName);
   }
   return entries;
 }
@@ -200,22 +268,29 @@ export async function listCronEntries(
 export async function addCronEntry(options: AddCronOptions): Promise<CronEntry> {
   const schedule = assertCronSchedule(options.schedule);
   const scriptPath = await resolveScriptPathByName(options.name);
+  const scriptName = path.basename(scriptPath, ".sh");
   const envPrefix = parseEnvAssignments(options.env);
   const argsSuffix = options.args ? ` ${options.args.trim()}` : "";
   const commandCore = `bash ${shellEscapeSingleQuote(scriptPath)}${argsSuffix}`;
   const command = envPrefix ? `${envPrefix} ${commandCore}` : commandCore;
   const normalizedComment = options.comment?.trim();
   const hash = makeHash(`${schedule}|${command}|${normalizedComment || ""}`);
-  const marker = buildMarker(options.name, normalizedComment, hash);
+  const marker = buildMarker(scriptName, normalizedComment, hash);
   const raw = `${schedule} ${command} # ${marker}`;
+  const headerLine = buildQixCronHeaderLine(
+    scriptName,
+    schedule,
+    normalizedComment,
+  );
 
   const entry: CronEntry = {
     schedule,
     command,
     marker,
-    scriptName: options.name,
+    scriptName,
     comment: normalizedComment || undefined,
     hash,
+    headerLine,
     raw,
   };
 
@@ -224,8 +299,13 @@ export async function addCronEntry(options: AddCronOptions): Promise<CronEntry> 
   }
 
   const lines = await readCrontabLines();
-  const exists = lines.some((line) => line.trim() === raw.trim());
+  const markerTail = ` # ${marker}`;
+  const exists = lines.some((line) => {
+    const t = line.trimEnd();
+    return t === raw.trim() || t.endsWith(markerTail);
+  });
   if (!exists) {
+    lines.push(headerLine);
     lines.push(raw);
     await writeCrontabLines(lines);
   }
@@ -233,10 +313,24 @@ export async function addCronEntry(options: AddCronOptions): Promise<CronEntry> 
   return entry;
 }
 
-function shouldRemoveEntry(entry: CronEntry, options: RemoveCronOptions): boolean {
-  if (entry.scriptName !== options.name) return false;
+function normalizeCronScheduleExpr(expr: string): string {
+  return expr.trim().split(/\s+/).join(" ");
+}
+
+function shouldRemoveEntry(
+  entry: CronEntry,
+  targetName: string,
+  options: RemoveCronOptions,
+): boolean {
+  if (entry.scriptName !== targetName) return false;
   if (options.all) return true;
-  if (options.schedule && entry.schedule !== options.schedule.trim()) return false;
+  if (
+    options.schedule &&
+    normalizeCronScheduleExpr(entry.schedule) !==
+      normalizeCronScheduleExpr(options.schedule)
+  ) {
+    return false;
+  }
   if (options.comment && (entry.comment || "") !== options.comment.trim()) {
     return false;
   }
@@ -246,22 +340,29 @@ function shouldRemoveEntry(entry: CronEntry, options: RemoveCronOptions): boolea
 export async function removeCronEntries(
   options: RemoveCronOptions,
 ): Promise<{ removed: CronEntry[] }> {
+  const targetName = normalizeScriptNameInput(options.name);
   const lines = await readCrontabLines();
   const removed: CronEntry[] = [];
-  const kept: string[] = [];
+  const toRemove = new Set<number>();
 
-  for (const line of lines) {
-    const entry = parseQixCronLine(line);
-    if (!entry) {
-      kept.push(line);
-      continue;
+  for (let i = 0; i < lines.length; i++) {
+    const entry = parseQixCronLine(lines[i]);
+    if (!entry) continue;
+    if (!shouldRemoveEntry(entry, targetName, options)) continue;
+
+    toRemove.add(i);
+    if (i > 0 && isQixCronHeaderLine(lines[i - 1])) {
+      toRemove.add(i - 1);
     }
-    if (shouldRemoveEntry(entry, options)) {
-      removed.push(entry);
-      continue;
-    }
-    kept.push(line);
+
+    const headerLine =
+      i > 0 && isQixCronHeaderLine(lines[i - 1])
+        ? lines[i - 1].trim()
+        : undefined;
+    removed.push({ ...entry, headerLine });
   }
+
+  const kept = lines.filter((_, index) => !toRemove.has(index));
 
   if (!options.dryRun && removed.length > 0) {
     await writeCrontabLines(kept);

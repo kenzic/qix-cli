@@ -34,6 +34,9 @@ export const registerCronRemoveCommand = (cron: Command): void => {
         });
         if (options.dryRun) {
           for (const entry of result.removed) {
+            if (entry.headerLine) {
+              console.log(entry.headerLine);
+            }
             console.log(entry.raw);
           }
           console.log(

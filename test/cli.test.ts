@@ -575,6 +575,9 @@ echo x
     expect(addResult.status).toBe(0);
     expect(addResult.stdout).toMatch(/Added cron for "nightly"/);
 
+    const afterAdd = await readFile(dbPath, "utf8");
+    expect(afterAdd).toMatch(/#\s*qix cron:\s*nightly/);
+
     const listed = runCli(["cron", "list"], { home, cwd, pathPrefix: binDir });
     expect(listed.status).toBe(0);
     expect(listed.stdout).toMatch(/\*\/5 \* \* \* \* \| nightly \|/);
@@ -597,6 +600,79 @@ echo x
     expect(finalCrontab).toMatch(/echo legacy-job/);
     expect(finalCrontab).toMatch(/echo keep-me/);
     expect(finalCrontab).not.toMatch(/qix:nightly/);
+    expect(finalCrontab).not.toMatch(/#\s*qix cron:\s*nightly/);
+  });
+
+  it("cron remove matches script name with or without .sh suffix", async () => {
+    const { home, cwd } = await setupSandbox();
+    const source = path.join(cwd, "sync.sh");
+    await createScript(source, "#!/usr/bin/env bash\necho sync\n");
+    expect(runCli(["add", source], { home, cwd }).status).toBe(0);
+
+    const binDir = path.join(cwd, "bin");
+    const dbPath = await createCrontabMock(binDir, home);
+
+    expect(
+      runCli(
+        [
+          "cron",
+          "add",
+          "sync",
+          "--schedule",
+          "0 * * * *",
+        ],
+        { home, cwd, pathPrefix: binDir },
+      ).status,
+    ).toBe(0);
+
+    const removed = runCli(
+      ["cron", "remove", "sync.sh", "--all"],
+      { home, cwd, pathPrefix: binDir },
+    );
+    expect(removed.status).toBe(0);
+    expect(removed.stdout).toMatch(/Removed 1 cron entr/);
+
+    const finalCrontab = await readFile(dbPath, "utf8");
+    expect(finalCrontab).not.toMatch(/qix:sync/);
+  });
+
+  it("cron remove matches six-field schedule lines", async () => {
+    const { home, cwd } = await setupSandbox();
+    const source = path.join(cwd, "brew-upgrade.sh");
+    await createScript(source, "#!/usr/bin/env bash\necho x\n");
+    expect(runCli(["add", source], { home, cwd }).status).toBe(0);
+
+    const binDir = path.join(cwd, "bin");
+    const dbPath = await createCrontabMock(binDir, home);
+
+    expect(
+      runCli(
+        [
+          "cron",
+          "add",
+          "brew-upgrade",
+          "--schedule",
+          "0 0 10 * * *",
+        ],
+        { home, cwd, pathPrefix: binDir },
+      ).status,
+    ).toBe(0);
+
+    const removed = runCli(
+      [
+        "cron",
+        "remove",
+        "brew-upgrade",
+        "--schedule",
+        "0 0 10 * * *",
+      ],
+      { home, cwd, pathPrefix: binDir },
+    );
+    expect(removed.status).toBe(0);
+    expect(removed.stdout).toMatch(/Removed 1 cron entr/);
+
+    const finalCrontab = await readFile(dbPath, "utf8");
+    expect(finalCrontab).not.toMatch(/qix:brew-upgrade/);
   });
 
   it("cron remove requires a removal selector", async () => {

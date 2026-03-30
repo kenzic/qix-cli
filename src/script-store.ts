@@ -191,6 +191,11 @@ function normalizeLookupName(name: string): string {
   return trimmed.endsWith(".sh") ? trimmed.slice(0, -3) : trimmed;
 }
 
+/** Same name normalization as resolveScriptPathByName (e.g. strips optional `.sh`). */
+export function normalizeScriptNameInput(name: string): string {
+  return validateScriptName(normalizeLookupName(name));
+}
+
 export async function resolveScriptPathByName(name: string): Promise<string> {
   const scriptName = validateScriptName(normalizeLookupName(name));
   const scriptPath = getScriptPath(scriptName);

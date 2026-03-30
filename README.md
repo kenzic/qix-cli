@@ -97,6 +97,8 @@ pnpm add -g qix-cli
   qix cron remove prod-deploy --all
   ```
 
+  Each job is stored with a `# qix cron: …` comment line directly above the crontab line; `qix cron remove` deletes both. Script names accept an optional `.sh` suffix (same as `qix run`).
+
 - **Bash completion**:
 
   ```bash

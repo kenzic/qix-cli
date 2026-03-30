@@ -35,6 +35,9 @@ export const registerCronAddCommand = (cron: Command): void => {
           dryRun: options.dryRun,
         });
         if (options.dryRun) {
+          if (entry.headerLine) {
+            console.log(entry.headerLine);
+          }
           console.log(entry.raw);
           return;
         }

@@ -18,6 +18,7 @@ export const registerCronListCommand = (cron: Command): void => {
               command: entry.command,
               comment: entry.comment,
               marker: entry.marker,
+              ...(entry.headerLine ? { headerLine: entry.headerLine } : {}),
             })),
             null,
             2,
