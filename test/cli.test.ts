@@ -46,13 +46,19 @@ function runCli(
     home,
     cwd,
     pathPrefix,
-  }: { home: string; cwd: string; pathPrefix?: string }
+    env: extraEnv,
+  }: {
+    home: string;
+    cwd: string;
+    pathPrefix?: string;
+    env?: Record<string, string>;
+  }
 ): { status: number | null; stdout: string; stderr: string } {
   const basePath = process.env.PATH || "";
   const composedPath = pathPrefix ? `${pathPrefix}:${basePath}` : basePath;
   const result = spawnSync(process.execPath, [cliPath, ...args], {
     cwd,
-    env: { ...process.env, HOME: home, PATH: composedPath },
+    env: { ...process.env, HOME: home, PATH: composedPath, ...extraEnv },
     encoding: "utf8",
   });
   return {
@@ -77,6 +83,30 @@ exec "${process.execPath}" "${cliPath}" "$@"
   );
   await chmod(shimPath, 0o755);
   return shimPath;
+}
+
+async function createClaudeMock(binDir: string): Promise<void> {
+  await mkdir(binDir, { recursive: true });
+  const mockPath = path.join(binDir, "claude");
+  await writeFile(
+    mockPath,
+    `#!/usr/bin/env bash
+set -euo pipefail
+: "\${CLAUDE_MOCK_ARGS_FILE:?}"
+: "\${CLAUDE_MOCK_PROMPT_OUT:?}"
+printf '%s\\n' "$@" > "$CLAUDE_MOCK_ARGS_FILE"
+prev=""
+for arg in "$@"; do
+  if [[ "$prev" == "--append-system-prompt-file" ]]; then
+    cp "$arg" "$CLAUDE_MOCK_PROMPT_OUT"
+    break
+  fi
+  prev="$arg"
+done
+exit 0
+`,
+    { mode: 0o755 }
+  );
 }
 
 async function createCrontabMock(binDir: string, home: string): Promise<string> {
@@ -726,5 +756,54 @@ echo x
     expect(result.stderr).toMatch(
       /Error: Specify --all, --schedule, or --comment to remove entries/,
     );
+  });
+
+  it("make launches claude with append prompt file and session name", async () => {
+    const { home, cwd } = await setupSandbox();
+    const binDir = path.join(cwd, "bin");
+    await createClaudeMock(binDir);
+
+    const argsFile = path.join(home, "claude-args.txt");
+    const promptFile = path.join(home, "claude-prompt.txt");
+
+    const result = runCli(["make", "my-script"], {
+      home,
+      cwd,
+      pathPrefix: binDir,
+      env: {
+        CLAUDE_MOCK_ARGS_FILE: argsFile,
+        CLAUDE_MOCK_PROMPT_OUT: promptFile,
+      },
+    });
+
+    expect(result.status).toBe(0);
+
+    const argsContent = await readFile(argsFile, "utf8");
+    expect(argsContent).toContain("--append-system-prompt-file");
+    expect(argsContent).toContain("-n");
+    expect(argsContent).toContain("qix-make:my-script");
+
+    const promptContent = await readFile(promptFile, "utf8");
+    expect(promptContent).toMatch(/set -euo pipefail/);
+    expect(promptContent).toMatch(/verbose|VERBOSE/);
+    expect(promptContent).toMatch(/qix add/);
+  });
+
+  it("make rejects unknown provider", async () => {
+    const { home, cwd } = await setupSandbox();
+    const result = runCli(
+      ["make", "--provider", "bogus", "my-script"],
+      { home, cwd },
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/Unknown make provider "bogus"/);
+    expect(result.stderr).toMatch(/claude-code/);
+  });
+
+  it("make rejects invalid script names", async () => {
+    const { home, cwd } = await setupSandbox();
+    const result = runCli(["make", "bad/name"], { home, cwd });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/Invalid script name/);
   });
 });
