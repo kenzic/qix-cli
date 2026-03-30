@@ -6,6 +6,7 @@ export const registerRunCommand = (program: Command): void => {
   program
     .command("run")
     .description("Run a script (any args will be passed to the script)")
+    .passThroughOptions()
     .argument("<name>", "script name")
     .argument("[args...]", "arguments passed to the script")
     .action(async (name: string, args: string[] = []) => {

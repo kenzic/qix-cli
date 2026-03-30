@@ -18,7 +18,8 @@ export const runCli = async (): Promise<void> => {
     .description("Manage bash scripts from a single CLI.")
     .showHelpAfterError()
     .addHelpText("before", HEADER)
-    .addHelpText("after", HELP_EXAMPLES);
+    .addHelpText("after", HELP_EXAMPLES)
+    .enablePositionalOptions();
 
   registerAddCommand(program);
   registerLinkCommand(program);
