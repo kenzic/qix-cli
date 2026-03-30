@@ -6,6 +6,7 @@ import { registerCronCommands } from "./commands/cron/index.js";
 import { registerInfoCommand } from "./commands/info.js";
 import { registerLinkCommand } from "./commands/link.js";
 import { registerListCommand } from "./commands/list.js";
+import { registerMakeCommand } from "./commands/make.js";
 import { registerRunCommand } from "./commands/run.js";
 
 export const runCli = async (): Promise<void> => {
@@ -26,6 +27,7 @@ export const runCli = async (): Promise<void> => {
   registerListCommand(program);
   registerInfoCommand(program);
   registerRunCommand(program);
+  registerMakeCommand(program);
   registerCompletionCommand(program);
   registerCronCommands(program);
 

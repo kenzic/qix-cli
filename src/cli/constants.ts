@@ -42,5 +42,6 @@ Examples:
   qix add ./deploy.sh --move
   qix add ./deploy.sh --name prod-deploy --force
   qix run prod-deploy -- --env staging
+  qix make my-script
   source <(qix completion bash)
 `;
